@@ -16,6 +16,10 @@
     "build": "npm run build --prefix client",
     "test": "npm test --prefix server",
     "seed": "npm run seed --prefix server",
-    "db:check": "npm run db:check --prefix server"
+    "db:check": "npm run db:check --prefix server",
+    "prod:init": "npm run prod:init --prefix server",
+    "prod:env": "npm run prod:env --prefix server",
+    "prod:db": "npm run prod:db --prefix server",
+    "prod:seed:plan": "npm run prod:seed:plan --prefix server"
   }
 }

@@ -16,7 +16,12 @@
     "test": "vitest run",
     "lint": "node --check src/server.js",
     "dev:local": "node scripts/dev-local.js",
-    "db:check": "node scripts/check-db.js"
+    "db:check": "node scripts/check-db.js",
+    "prod:init": "node scripts/prod-init.js",
+    "prod:env": "node scripts/prod.js env",
+    "prod:db": "node scripts/prod.js db",
+    "prod:seed:plan": "node scripts/prod.js seed --plan",
+    "prod:seed": "node scripts/prod.js seed"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

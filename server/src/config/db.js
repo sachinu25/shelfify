@@ -22,6 +22,8 @@ export async function connectDB(uri = env.MONGODB_URI) {
         serverSelectionTimeoutMS: 10_000,
         // Index builds belong to deploy-time seeding (npm run seed), not every cold start.
         autoIndex: !env.isProd,
+        // Likewise, don't create collections implicitly on connect in production (seeding does it).
+        autoCreate: !env.isProd,
       })
       .then((m) => {
         logger.info({ host: m.connection.host, db: m.connection.name }, 'MongoDB connected');
