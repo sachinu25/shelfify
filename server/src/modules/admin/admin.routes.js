@@ -10,6 +10,7 @@ import { ApiError } from '../../lib/ApiError.js';
 import { ok } from '../../lib/respond.js';
 import { bumpNamespace } from '../../lib/cache.js';
 import { escapeRegex, isObjectId, paginationMeta } from '../../lib/utils.js';
+import { httpUrl, toPatchSchema } from '../../lib/validation.js';
 import { getProduct, invalidateProducts, listProducts, toProductDTO } from '../products/product.service.js';
 import { listQuery } from '../products/product.routes.js';
 import { adminUpdateStatus, releaseExpiredReservations, toOrderDTO } from '../orders/order.service.js';
@@ -39,7 +40,15 @@ const productBody = z.object({
   genre: z.enum(GENRES),
   price: z.coerce.number().min(0, 'Price must be positive'),
   mrp: z.coerce.number().min(0),
-  coverImage: z.union([z.string().trim().url('Cover must be a valid URL').max(500), z.string().trim().regex(/^\/[\w\-./]+$/), z.literal('')]).optional().default(''),
+  // Absolute http(s) URL, or a same-site path such as /covers/x.jpg (protocol-relative //host is rejected).
+  coverImage: z
+    .union([
+      httpUrl('Cover must be an http(s) URL or a /path'),
+      z.string().trim().regex(/^\/(?!\/)[\w\-./]+$/, 'Cover must be an http(s) URL or a /path'),
+      z.literal(''),
+    ])
+    .optional()
+    .default(''),
   badge: z.string().trim().max(30).optional().default(''),
   publisher: z.string().trim().max(120).optional(),
   language: z.string().trim().max(40).optional(),
@@ -75,7 +84,7 @@ router.post('/products', validate({ body: productBody }), async (req, res) => {
   ok(res, toProductDTO(product.toObject(), { admin: true }), 201);
 });
 
-router.patch('/products/:id', idParam, validate({ body: productBody.partial() }), async (req, res) => {
+router.patch('/products/:id', idParam, validate({ body: toPatchSchema(productBody) }), async (req, res) => {
   const product = await Product.findById(req.valid.params.id);
   if (!product) throw ApiError.notFound('Book not found');
   product.set(req.body);
@@ -155,7 +164,7 @@ router.patch(
         .object({
           carrier: z.string().trim().max(60).optional(),
           number: z.string().trim().max(60).optional(),
-          url: z.union([z.string().trim().url().max(300), z.literal('')]).optional(),
+          url: z.union([httpUrl('Tracking URL must be an http(s) URL', 300), z.literal('')]).optional(),
         })
         .optional(),
     }),
@@ -173,8 +182,7 @@ router.post('/orders/release-expired', async (_req, res) => {
 
 /* -------------------------------- coupons ------------------------------- */
 
-const couponBody = z
-  .object({
+const couponFields = z.object({
     code: z
       .string()
       .trim()
@@ -190,9 +198,12 @@ const couponBody = z
     usageLimit: z.coerce.number().int().min(1).optional().nullable(),
     perUserLimit: z.coerce.number().int().min(1).optional().default(1),
     isActive: z.boolean().optional().default(true),
-  })
+  });
+
+const couponBody = couponFields
   .refine((c) => c.type !== 'percent' || c.value <= 90, { message: 'Percentage discount cannot exceed 90%', path: ['value'] })
   .refine((c) => !c.startsAt || !c.expiresAt || c.startsAt < c.expiresAt, { message: 'Expiry must be after start date', path: ['expiresAt'] });
+const couponPatch = toPatchSchema(couponFields);
 
 function couponDTO(c) {
   const { usedBy, __v, ...rest } = c;
@@ -210,11 +221,12 @@ router.post('/coupons', validate({ body: couponBody }), async (req, res) => {
   ok(res, couponDTO(coupon.toObject()), 201);
 });
 
-router.patch('/coupons/:id', idParam, validate({ body: couponBody.innerType().innerType().partial() }), async (req, res) => {
+router.patch('/coupons/:id', idParam, validate({ body: couponPatch }), async (req, res) => {
   const coupon = await Coupon.findById(req.valid.params.id);
   if (!coupon) throw ApiError.notFound('Coupon not found');
   coupon.set(req.body);
   if (coupon.type === 'percent' && coupon.value > 90) throw ApiError.badRequest('Percentage discount cannot exceed 90%');
+  if (coupon.startsAt && coupon.expiresAt && coupon.startsAt >= coupon.expiresAt) throw ApiError.badRequest('Expiry must be after start date');
   await coupon.save();
   await bumpNamespace('coupons');
   ok(res, couponDTO(coupon.toObject()));

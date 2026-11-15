@@ -119,7 +119,9 @@ describe('auth', () => {
     const rotated = await request(app).post('/api/v1/auth/refresh').set('Cookie', original);
     expect(rotated.status).toBe(200);
     const next = rotated.headers['set-cookie'][0].split(';')[0];
-    const replay = await request(app).post('/api/v1/auth/refresh').set('Cookie', original);
+    // Replayed by a different client (a same-browser replay within the grace window is
+    // legitimate multi-tab behaviour since audit fix H1 - covered in auth-sessions.test.js).
+    const replay = await request(app).post('/api/v1/auth/refresh').set('Cookie', original).set('User-Agent', 'attacker-device/1.0');
     expect(replay.status).toBe(401);
     // the legitimately rotated token is now revoked too
     expect((await request(app).post('/api/v1/auth/refresh').set('Cookie', next)).status).toBe(401);

@@ -1,26 +1,28 @@
 import { LRUCache } from 'lru-cache';
-import { getRedis, redisHealthy } from '../config/redis.js';
+import { isRedisConfigured, readyRedis } from '../config/redis.js';
 import { logger } from '../config/logger.js';
 
 /**
- * Two-tier read-through cache.
- *  - Redis (shared across instances) when REDIS_URL is configured and healthy.
- *  - In-process LRU otherwise (still useful on warm serverless containers).
+ * Read-through cache.
+ *  - Redis (shared by every serverless instance) when configured and reachable.
+ *  - In-process LRU otherwise. Without a shared Redis, other instances cannot see
+ *    invalidations, so memory TTLs are capped to keep admin edits (price, stock,
+ *    visibility) from lingering on warm instances (audit H4).
  *
  * Invalidation uses namespace versioning: bumping a namespace version makes all
- * keys under it unreachable without needing SCAN/DEL over Redis.
+ * keys under it unreachable without SCAN/DEL.
  */
 const memory = new LRUCache({ max: 1000, ttl: 60_000, ttlAutopurge: false });
 const PREFIX = 'shelfify:';
+export const MEMORY_TTL_CAP_SECONDS = 30;
 
-async function getVersion(ns) {
-  const redis = getRedis();
+async function getVersion(ns, redis) {
   const key = `${PREFIX}ver:${ns}`;
-  if (redis && redisHealthy()) {
+  if (redis) {
     try {
       return (await redis.get(key)) || '0';
     } catch {
-      /* fall through */
+      /* fall through to memory */
     }
   }
   return memory.get(key) || '0';
@@ -28,15 +30,17 @@ async function getVersion(ns) {
 
 export async function bumpNamespace(ns) {
   const key = `${PREFIX}ver:${ns}`;
-  const next = String(Date.now());
+  const next = `${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
   memory.set(key, next, { ttl: 0 });
-  const redis = getRedis();
-  if (redis && redisHealthy()) {
+  const redis = await readyRedis();
+  if (redis) {
     try {
       await redis.set(key, next);
     } catch (err) {
-      logger.warn({ err: err.message }, 'cache bump failed');
+      logger.warn({ err: err.message, ns }, 'cache invalidation could not reach Redis');
     }
+  } else if (isRedisConfigured()) {
+    logger.warn({ ns }, 'cache invalidation skipped Redis (unavailable)');
   }
 }
 
@@ -44,16 +48,16 @@ export async function bumpNamespace(ns) {
  * @template T
  * @param {string} ns namespace (e.g. "products")
  * @param {string} key unique key within the namespace
- * @param {number} ttlSeconds
+ * @param {number} ttlSeconds TTL when served from Redis
  * @param {() => Promise<T>} loader
  * @returns {Promise<T>}
  */
 export async function cached(ns, key, ttlSeconds, loader) {
-  const version = await getVersion(ns);
+  const redis = await readyRedis();
+  const version = await getVersion(ns, redis);
   const fullKey = `${PREFIX}${ns}:${version}:${key}`;
-  const redis = getRedis();
 
-  if (redis && redisHealthy()) {
+  if (redis) {
     try {
       const hit = await redis.get(fullKey);
       if (hit) return JSON.parse(hit);
@@ -67,10 +71,14 @@ export async function cached(ns, key, ttlSeconds, loader) {
 
   const value = await loader();
 
-  if (redis && redisHealthy()) {
-    redis.set(fullKey, JSON.stringify(value), 'EX', ttlSeconds).catch(() => {});
+  if (redis) {
+    try {
+      await redis.set(fullKey, JSON.stringify(value), 'EX', ttlSeconds);
+    } catch (err) {
+      logger.debug({ err: err.message }, 'redis set failed');
+    }
   } else {
-    memory.set(fullKey, value, { ttl: ttlSeconds * 1000 });
+    memory.set(fullKey, value, { ttl: Math.min(ttlSeconds, MEMORY_TTL_CAP_SECONDS) * 1000 });
   }
   return value;
 }

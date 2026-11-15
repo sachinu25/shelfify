@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
-import { RefreshToken } from '../models/RefreshToken.js';
+import { FAMILY_KILL_REASONS, RefreshToken } from '../models/RefreshToken.js';
 import { randomToken, sha256 } from './utils.js';
 import { ApiError } from './ApiError.js';
 
@@ -40,37 +40,75 @@ export async function issueRefreshToken(user, { family, userAgent, ip } = {}) {
   return { token, expiresAt };
 }
 
-export async function rotateRefreshToken(rawToken, meta) {
+const MAX_GRACE_USES = 3;
+
+/**
+ * Ends a session family. `markTokenId` is always stamped with the reason too, so the
+ * family is recorded as terminated even when every token in it was already rotated.
+ */
+async function killFamily(family, reason, markTokenId) {
+  const now = new Date();
+  await RefreshToken.updateMany({ family, revokedAt: null }, { $set: { revokedAt: now, revokedReason: reason } });
+  if (markTokenId) await RefreshToken.updateOne({ _id: markTokenId }, { $set: { revokedReason: reason } });
+}
+
+/**
+ * Rotates a refresh token.
+ *
+ * Re-presenting an already rotated token is normally a theft signal and revokes
+ * the whole family. The exception (audit H1) is a short grace window for the
+ * same browser: several tabs restoring a session at the same moment all send the
+ * same cookie. A graced request gets its own new token in the same family,
+ * provided the token was rotated (not logged out / revoked) less than
+ * REFRESH_REUSE_GRACE_SECONDS ago, the user agent matches, the grace budget is
+ * not exhausted and the family has not been terminated.
+ */
+export async function rotateRefreshToken(rawToken, { userAgent } = {}) {
   if (!rawToken) throw ApiError.unauthorized('Session expired', { code: 'NO_REFRESH_TOKEN' });
   const tokenHash = sha256(rawToken);
+  const now = new Date();
 
-  // Atomically mark as used so concurrent refreshes cannot both succeed.
+  // Atomically mark as used so concurrent refreshes cannot both rotate it.
   const existing = await RefreshToken.findOneAndUpdate(
     { tokenHash, revokedAt: null },
-    { $set: { revokedAt: new Date() } },
+    { $set: { revokedAt: now, revokedReason: 'rotated' } },
     { new: false },
   );
 
-  if (!existing) {
-    const reused = await RefreshToken.findOne({ tokenHash });
-    if (reused) {
-      await RefreshToken.updateMany({ family: reused.family, revokedAt: null }, { $set: { revokedAt: new Date() } });
+  if (existing) {
+    if (existing.expiresAt < now) throw ApiError.unauthorized('Session expired', { code: 'REFRESH_TOKEN_EXPIRED' });
+    return { userId: existing.user, family: existing.family, graced: false };
+  }
+
+  const prior = await RefreshToken.findOne({ tokenHash });
+  if (!prior) throw ApiError.unauthorized('Session expired', { code: 'INVALID_REFRESH_TOKEN' });
+
+  const graceMs = env.REFRESH_REUSE_GRACE_SECONDS * 1000;
+  const sameAgent = (prior.userAgent || '') === (userAgent || '').slice(0, 256);
+  const recentlyRotated = prior.revokedReason === 'rotated' && prior.revokedAt && now - prior.revokedAt <= graceMs;
+
+  if (graceMs > 0 && recentlyRotated && sameAgent && prior.expiresAt > now) {
+    const familyTerminated = await RefreshToken.exists({ family: prior.family, revokedReason: { $in: FAMILY_KILL_REASONS } });
+    if (!familyTerminated) {
+      const budget = await RefreshToken.updateOne({ _id: prior._id, graceUses: { $lt: MAX_GRACE_USES } }, { $inc: { graceUses: 1 } });
+      if (budget.modifiedCount === 1) return { userId: prior.user, family: prior.family, graced: true };
     }
-    throw ApiError.unauthorized('Session expired', { code: 'INVALID_REFRESH_TOKEN' });
   }
-  if (existing.expiresAt < new Date()) {
-    throw ApiError.unauthorized('Session expired', { code: 'REFRESH_TOKEN_EXPIRED' });
-  }
-  return { userId: existing.user, family: existing.family, meta };
+
+  // Genuine re-use of a rotated/revoked token: assume theft and end the session family.
+  await killFamily(prior.family, 'reuse', prior._id);
+  throw ApiError.unauthorized('Session expired', { code: 'INVALID_REFRESH_TOKEN' });
 }
 
+/** Logout ends the whole session family (other tabs share the same cookie jar). */
 export async function revokeRefreshToken(rawToken) {
   if (!rawToken) return;
-  await RefreshToken.updateOne({ tokenHash: sha256(rawToken), revokedAt: null }, { $set: { revokedAt: new Date() } });
+  const token = await RefreshToken.findOne({ tokenHash: sha256(rawToken) }, 'family').lean();
+  if (token) await killFamily(token.family, 'logout', token._id);
 }
 
-export async function revokeAllForUser(userId) {
-  await RefreshToken.updateMany({ user: userId, revokedAt: null }, { $set: { revokedAt: new Date() } });
+export async function revokeAllForUser(userId, reason = 'password') {
+  await RefreshToken.updateMany({ user: userId, revokedAt: null }, { $set: { revokedAt: new Date(), revokedReason: reason } });
 }
 
 export function refreshCookieOptions(expires) {

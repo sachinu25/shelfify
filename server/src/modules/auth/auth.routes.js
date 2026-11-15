@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { User } from '../../models/User.js';
 import { validate } from '../../middleware/validate.js';
 import { authenticate } from '../../middleware/auth.js';
-import { authLimiter } from '../../middleware/rateLimit.js';
+import bcrypt from 'bcryptjs';
+import { authLimiter, loginAccountLimiter } from '../../middleware/rateLimit.js';
 import { ApiError } from '../../lib/ApiError.js';
 import { ok } from '../../lib/respond.js';
 import { env } from '../../config/env.js';
@@ -26,6 +27,8 @@ const password = z
   .string()
   .min(8, 'Password must be at least 8 characters')
   .max(128, 'Password is too long')
+  // bcrypt only uses the first 72 bytes; longer (e.g. multi-byte) input would be silently truncated.
+  .refine((v) => Buffer.byteLength(v, 'utf8') <= 72, 'Password is too long')
   .regex(/[A-Za-z]/, 'Password must contain a letter')
   .regex(/\d/, 'Password must contain a number');
 
@@ -55,13 +58,19 @@ router.post('/register', authLimiter, validate({ body: schemas.register }), asyn
   }
   const user = await User.create({ name, email: mail, password: pass, lastLoginAt: new Date() });
   const accessToken = await startSession(req, res, user);
-  sendEmail(user.email, templates.welcome(user));
+  // Awaited: serverless platforms may freeze the function once the response is sent (audit H2).
+  await sendEmail(user.email, templates.welcome(user));
   ok(res, { user: user.toPublic(), accessToken }, 201);
 });
 
-router.post('/login', authLimiter, validate({ body: schemas.login }), async (req, res) => {
+// Compared against when the email is unknown, so response time doesn't reveal which accounts exist.
+let dummyHash;
+const getDummyHash = async () => (dummyHash ??= await bcrypt.hash(randomToken(16), 12));
+
+router.post('/login', authLimiter, validate({ body: schemas.login }), loginAccountLimiter, async (req, res) => {
   const user = await User.findOne({ email: req.body.email }).select('+password');
   // Same message for unknown email and wrong password to avoid account enumeration.
+  if (!user) await bcrypt.compare(req.body.password, await getDummyHash());
   if (!user || !(await user.comparePassword(req.body.password))) {
     throw ApiError.unauthorized('Incorrect email or password', { code: 'INVALID_CREDENTIALS' });
   }
@@ -75,7 +84,7 @@ router.post('/login', authLimiter, validate({ body: schemas.login }), async (req
 router.post('/refresh', async (req, res) => {
   const raw = req.cookies?.[REFRESH_COOKIE];
   try {
-    const { userId, family } = await rotateRefreshToken(raw);
+    const { userId, family } = await rotateRefreshToken(raw, { userAgent: req.headers['user-agent'] });
     const user = await User.findById(userId);
     if (!user || user.isBlocked) throw ApiError.unauthorized('Session expired', { code: 'INVALID_REFRESH_TOKEN' });
     const accessToken = await startSession(req, res, user, family);

@@ -6,7 +6,10 @@ import { authenticate } from '../../middleware/auth.js';
 import { ApiError } from '../../lib/ApiError.js';
 import { ok } from '../../lib/respond.js';
 import { isObjectId } from '../../lib/utils.js';
+import { httpUrl, toPatchSchema } from '../../lib/validation.js';
 import { addressSchema } from './user.schemas.js';
+
+const addressPatch = toPatchSchema(addressSchema);
 
 const router = Router();
 router.use(authenticate);
@@ -23,7 +26,7 @@ router.patch(
         .trim()
         .regex(/^([+]?[0-9\s-]{10,15})?$/, 'Enter a valid phone number')
         .optional(),
-      avatarUrl: z.union([z.string().trim().url().max(500), z.literal('')]).optional(),
+      avatarUrl: z.union([httpUrl('Avatar must be an http(s) URL'), z.literal('')]).optional(),
     }),
   }),
   async (req, res) => {
@@ -53,7 +56,7 @@ router.post('/me/addresses', validate({ body: addressSchema }), async (req, res)
   ok(res, user.addresses, 201);
 });
 
-router.patch('/me/addresses/:addressId', addrParam, validate({ body: addressSchema.partial() }), async (req, res) => {
+router.patch('/me/addresses/:addressId', addrParam, validate({ body: addressPatch }), async (req, res) => {
   const user = await User.findById(req.user.id, 'addresses');
   const address = user.addresses.id(req.valid.params.addressId);
   if (!address) throw ApiError.notFound('Address not found');

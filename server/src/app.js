@@ -16,7 +16,13 @@ import { errorHandler, notFound } from './middleware/error.js';
 import paymentRoutes from './modules/payments/payment.routes.js';
 import v1 from './routes/v1.js';
 
+let warned = false;
+
 export function createApp() {
+  if (!warned) {
+    env.warnings.forEach((w) => logger.warn(w));
+    warned = true;
+  }
   const app = express();
 
   app.disable('x-powered-by');
