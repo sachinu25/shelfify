@@ -24,17 +24,24 @@ export function onSessionExpired(fn) {
   return () => listeners.delete(fn);
 }
 
+const doRefresh = () =>
+  axios.post(`${baseURL}/auth/refresh`, {}, { withCredentials: true, timeout: 15000 }).then((res) => {
+    setAccessToken(res.data.data.accessToken);
+    return res.data.data;
+  });
+
+/**
+ * Refreshes the session. Single-flight within a tab, and serialised across tabs
+ * with the Web Locks API so concurrently opened tabs rotate the refresh cookie
+ * one after another instead of racing (audit H1). The server additionally
+ * tolerates a same-browser race for browsers without Web Locks.
+ */
 export function refreshSession() {
   if (!refreshPromise) {
-    refreshPromise = axios
-      .post(`${baseURL}/auth/refresh`, {}, { withCredentials: true, timeout: 15000 })
-      .then((res) => {
-        setAccessToken(res.data.data.accessToken);
-        return res.data.data;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
+    const run = navigator.locks?.request ? navigator.locks.request('shelfify-auth-refresh', doRefresh) : doRefresh();
+    refreshPromise = run.finally(() => {
+      refreshPromise = null;
+    });
   }
   return refreshPromise;
 }

@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
-import { Route, Routes } from 'react-router-dom';
+import { Route, Routes, useLocation } from 'react-router-dom';
 import { GuestOnly, RequireAdmin, RequireAuth, ScrollToTop, SiteLayout } from './components/layout/Guards';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { PageLoader } from './components/ui';
 import Home from './pages/Home';
 
@@ -27,8 +28,9 @@ const AdminCoupons = lazy(() => import('./pages/admin/Coupons'));
 const AdminUsers = lazy(() => import('./pages/admin/Users'));
 
 export default function App() {
+  const { pathname } = useLocation();
   return (
-    <>
+    <ErrorBoundary resetKey={pathname}>
       <ScrollToTop />
       <Suspense fallback={<PageLoader />}>
         <Routes>
@@ -60,6 +62,6 @@ export default function App() {
           </Route>
         </Routes>
       </Suspense>
-    </>
+    </ErrorBoundary>
   );
 }

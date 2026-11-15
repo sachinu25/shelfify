@@ -24,6 +24,9 @@ const PRICE_PRESETS = [
   ['₹600 & above', '600', ''],
 ];
 
+/** Genres in the browser's current URL (not the possibly-lagging rendered params). */
+const liveGenres = () => (new URLSearchParams(window.location.search).get('genre') || '').split(',').filter(Boolean);
+
 function Filters({ params, update, facets }) {
   const genres = (params.get('genre') || '').split(',').filter(Boolean);
   const [minPrice, setMinPrice] = useState(params.get('minPrice') || '');
@@ -34,7 +37,8 @@ function Filters({ params, update, facets }) {
   }, [params]);
 
   const toggleGenre = (g) => {
-    const next = genres.includes(g) ? genres.filter((x) => x !== g) : [...genres, g];
+    const current = liveGenres();
+    const next = current.includes(g) ? current.filter((x) => x !== g) : [...current, g];
     update({ genre: next.join(',') });
   };
   const group = 'border-b border-line py-6 first:pt-0';
@@ -120,15 +124,15 @@ export default function Shop() {
   });
   const facets = useQuery({ queryKey: ['facets'], queryFn: async () => unwrap(await api.get('/products/facets')), staleTime: 300_000 });
 
-  // Functional update: rapid successive changes (filter, then sort) always build on
-  // the latest URL instead of a stale render-time snapshot.
+  // Build every change on the browser's current URL. React Router applies URL updates
+  // inside a transition, so both the rendered `params` and the functional
+  // setSearchParams(prev => ...) form can lag behind; a quick second change (e.g. a
+  // filter followed by a sort) would otherwise silently drop the first one.
   const update = (patch, { resetPage = true } = {}) => {
-    setParams((prev) => {
-      const next = new URLSearchParams(prev);
-      Object.entries(patch).forEach(([k, v]) => (v ? next.set(k, v) : next.delete(k)));
-      if (resetPage) next.delete('page');
-      return next;
-    });
+    const next = new URLSearchParams(window.location.search);
+    Object.entries(patch).forEach(([k, v]) => (v ? next.set(k, v) : next.delete(k)));
+    if (resetPage) next.delete('page');
+    setParams(next);
   };
 
   const chips = [];
@@ -142,7 +146,7 @@ export default function Shop() {
   const removeChip = (key) => {
     if (key.startsWith('genre:')) {
       const g = key.split(':')[1];
-      update({ genre: (params.get('genre') || '').split(',').filter((x) => x && x !== g).join(',') });
+      update({ genre: liveGenres().filter((x) => x !== g).join(',') });
     } else if (key === 'price') update({ minPrice: '', maxPrice: '' });
     else update({ [key]: '' });
   };

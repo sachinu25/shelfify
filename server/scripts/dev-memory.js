@@ -7,9 +7,10 @@ import { fileURLToPath } from 'node:url';
 
 // Use the binary cached by this package's install, regardless of where npm was invoked from.
 process.env.MONGOMS_DOWNLOAD_DIR ||= path.join(path.dirname(fileURLToPath(import.meta.url)), '../node_modules/.cache/mongodb-memory-server');
-const { MongoMemoryServer } = await import('mongodb-memory-server');
+const { MongoMemoryReplSet } = await import('mongodb-memory-server');
 
-const mongo = await MongoMemoryServer.create({ instance: { dbName: 'shelfify' } });
+// Single-node replica set: like MongoDB Atlas, so transactions behave exactly as in production.
+const mongo = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger', dbName: 'shelfify' } });
 process.env.MONGODB_URI = mongo.getUri('shelfify');
 console.log(`In-memory MongoDB running at ${process.env.MONGODB_URI}`);
 

@@ -74,19 +74,26 @@ npm run dev                  # API on :5000 + web on http://localhost:5173 (Ctrl
 ## Testing
 
 ```bash
-npm test                     # server integration tests (Vitest + Supertest + in-memory MongoDB)
+npm test                     # 65 server tests (Vitest + Supertest + in-memory MongoDB / replica set)
 npm run build                # production client build
 ```
 
-The suite covers auth (refresh rotation, reuse detection, session revocation), RBAC, NoSQL-injection stripping, catalog search, filters and pagination, cart pricing and coupons, guest-cart merge, checkout idempotency, oversell prevention, forged-signature rejection, idempotent verification and webhooks, cancellation with restock and refund, reservation expiry, order privacy and reviews.
+| Suite | Covers |
+|---|---|
+| `api.test.js` | Auth, RBAC, NoSQL-injection stripping, catalog, cart and coupons, guest-cart merge, checkout idempotency, oversell prevention, forged signatures, webhooks, cancellation and refunds, reservation expiry, order privacy, reviews. Runs on a standalone server (the no-transaction fallback). |
+| `orders-reliability.test.js` | Real transactions on a replica set: concurrent checkout without overselling, rollback after crashes, coupon reservation under concurrency, crash-safe fulfilment that runs exactly once, retries of emails and refunds |
+| `auth-sessions.test.js` | Multi-tab refresh grace window, theft detection, logout/password revocation, per-account login throttling |
+| `redis.test.js` | An unreachable Redis can't crash or stall the API; rate limits and cache invalidation shared across instances; mid-request fallback |
+| `security.test.js` | Fail-closed production config, Zod 4 partial-update safety, http(s)-only URLs, webhook raw-body handling, health exposure, request IDs, cache headers |
 
 ## Deployment (Vercel)
 
-1. Create a MongoDB Atlas cluster and allow network access from Vercel (`0.0.0.0/0`, or Vercel's static IPs on paid plans).
-2. Import this folder as a Vercel project with the **root directory** set to this folder. `vercel.json` configures install, build, output, the `/api` function, SPA rewrites, security headers and the cron job.
-3. Add the environment variables from `server/.env.example`. At minimum set `MONGODB_URI`, `JWT_ACCESS_SECRET` and `CLIENT_URL`. Add `RAZORPAY_*` to enable payments and `CRON_SECRET` for the cron job.
-4. Seed once from your machine: `MONGODB_URI=… SEED_ADMIN_EMAIL=… SEED_ADMIN_PASSWORD=… npm run seed`.
-5. In Razorpay, add the webhook `https://<domain>/api/v1/payments/webhook` with the events listed in `.env.example`.
+1. Create a MongoDB Atlas cluster in **AWS Mumbai (ap-south-1)** to match the function region `bom1` in `vercel.json`. Allow network access from Vercel (`0.0.0.0/0`, or static IPs on paid plans). Atlas is always a replica set, so checkout runs in real transactions.
+2. Create an **Upstash Redis** database (ap-south-1) and copy its `rediss://` TCP URL into `REDIS_URL`. This shares rate limits and cache invalidation across serverless instances.
+3. Import this folder as a Vercel project with the **root directory** set to this folder. `vercel.json` configures install, build, output, the `/api` function, the region, SPA rewrites, security headers and the daily maintenance cron.
+4. Add the environment variables from `server/.env.example`: `MONGODB_URI`, `JWT_ACCESS_SECRET` (strong, random), an https `CLIENT_URL`, `CRON_SECRET`, `REDIS_URL` and `NODEJS_HELPERS=0`, plus `RAZORPAY_*` to enable payments and `SMTP_*` for email. The API refuses to start if a required value is missing or weak.
+5. Seed once from your machine, and again after any deploy that adds indexes (production skips index builds at cold start): `MONGODB_URI=… SEED_ADMIN_EMAIL=… SEED_ADMIN_PASSWORD=… npm run seed`.
+6. In Razorpay, add the webhook `https://<domain>/api/v1/payments/webhook` with the events listed in `.env.example`.
 
 ## API
 
