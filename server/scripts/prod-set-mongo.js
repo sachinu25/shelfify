@@ -62,10 +62,18 @@ const askHidden = async (q) => {
 console.log('\nShelfify - configure the production MongoDB connection (stored only in server/.env.production.local)\n');
 
 const DB_NAME = 'shelfify';
-const input = await ask('1) Paste the Atlas connection string (any driver) OR just the cluster host\n   e.g. shelfify-prod.ab1cd.mongodb.net\n   > ');
+const input = await ask('1) Paste the Atlas connection string (any driver) OR just the cluster host\n   (format: <cluster-name>.<your-id>.mongodb.net - copy yours from Atlas, not an example)\n   > ');
 const host = (input.match(/@([^/?\s]+)/)?.[1] || input.replace(/^mongodb(\+srv)?:\/\//, '').split(/[/?]/)[0]).trim();
-if (!/^[a-z0-9.-]+\.mongodb\.net$/i.test(host)) {
-  console.error(`\nThat does not look like an Atlas cluster host (expected something like shelfify-prod.xxxxx.mongodb.net). Nothing was changed.`);
+if (!/^[a-z0-9.-]+\.mongodb\.net$/i.test(host) || /\.(xxxxx|ab1cd)\./i.test(host)) {
+  console.error(`\nThat is not your Atlas cluster host (it must be the one shown in YOUR Atlas Connect dialog). Nothing was changed.`);
+  rl.close();
+  process.exit(1);
+}
+try {
+  const records = await (await import('node:dns')).promises.resolveSrv(`_mongodb._tcp.${host}`);
+  console.log(`   ok - ${host} found (${records.length} replica set members)`);
+} catch {
+  console.error(`\n${host} does not exist in DNS - re-copy the host from Atlas -> Connect. Nothing was changed.`);
   rl.close();
   process.exit(1);
 }
@@ -87,6 +95,31 @@ if (password !== confirm) {
 
 const appName = host.split('.')[0];
 const uri = `mongodb+srv://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}/${DB_NAME}?retryWrites=true&w=majority&appName=${encodeURIComponent(appName)}`;
+
+// Verify the credentials BEFORE saving (read-only ping; nothing is written to the database).
+if (!process.env.SHELFIFY_SKIP_CONNECT_TEST) {
+  process.stdout.write('\nTesting the login against Atlas (read-only) ... ');
+  const { default: mongoose } = await import('mongoose');
+  const client = new mongoose.mongo.MongoClient(uri, { serverSelectionTimeoutMS: 15_000 });
+  try {
+    await client.connect();
+    await client.db(DB_NAME).command({ ping: 1 });
+    console.log('login OK');
+  } catch (err) {
+    const msg = String(err.message);
+    console.log('FAILED');
+    if (/bad auth|Authentication failed/i.test(msg)) {
+      console.error(`\nAtlas rejected the password for "${user}". Use the password of the DATABASE USER (Atlas -> Database Access ->`);
+      console.error(`${user} -> Edit -> Edit Password -> Autogenerate -> Copy -> Update User), wait ~1 minute, then run this again.`);
+    } else if (/timed out|ECONNREFUSED|ETIMEDOUT/i.test(msg)) {
+      console.error('\nAtlas did not accept the connection from this computer - check Atlas -> Network Access includes your current IP.');
+    } else console.error(`\n${msg.replace(/\/\/[^@\s]+@/g, '//****@')}`);
+    console.error('Nothing was changed.');
+    await client.close().catch(() => {});
+    process.exit(1);
+  }
+  await client.close();
+}
 
 const text = readFileSync(file, 'utf8');
 const updated = /^MONGODB_URI=.*$/m.test(text) ? text.replace(/^MONGODB_URI=.*$/m, () => `MONGODB_URI=${uri}`) : `${text.trimEnd()}\nMONGODB_URI=${uri}\n`;
