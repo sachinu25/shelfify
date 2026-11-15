@@ -22,7 +22,9 @@
     "prod:db": "node scripts/prod.js db",
     "prod:seed:plan": "node scripts/prod.js seed --plan",
     "prod:seed": "node scripts/prod.js seed",
-    "prod:set-mongo": "node scripts/prod-set-mongo.js"
+    "prod:set-mongo": "node scripts/prod-set-mongo.js",
+    "prod:redis": "node scripts/prod.js redis",
+    "prod:set-redis": "node scripts/prod-set-redis.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

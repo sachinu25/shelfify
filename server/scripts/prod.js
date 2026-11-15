@@ -1,7 +1,7 @@
 /**
  * Runs a maintenance script against PRODUCTION configuration only.
  *
- *   node scripts/prod.js <env|db|seed> [flags]
+ *   node scripts/prod.js <env|db|redis|seed> [flags]
  *
  * It loads server/.env.production.local (git-ignored, excluded from Vercel uploads)
  * and deliberately NOT server/.env, so local-only values such as the local admin
@@ -17,6 +17,7 @@ const envFile = path.join(root, '.env.production.local');
 const targets = {
   env: './check-env.js',
   db: './check-db.js',
+  redis: './check-redis.js',
   seed: './seed.js',
 };
 
@@ -41,5 +42,6 @@ try {
 // dotenv/config (imported by the target and by src/config/env.js) honours this path,
 // so ONLY the production file is loaded - never server/.env.
 process.env.DOTENV_CONFIG_PATH = envFile;
+process.env.LOG_LEVEL ||= 'warn'; // keep operator output readable
 process.argv = [process.argv[0], path.join(root, 'scripts', targets[command]), ...rest];
 await import(targets[command]);
