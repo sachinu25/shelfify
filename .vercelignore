@@ -1,0 +1,9 @@
+**/node_modules
+client/dist
+client/legacy-cra
+server/tests
+server/.env
+**/.env
+**/.env.*
+!**/.env.example
+server/.data

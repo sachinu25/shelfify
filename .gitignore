@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+
+# builds
+client/dist/
+client/legacy-cra/build/
+coverage/
+
+# environment — never commit secrets
+.env
+.env.*
+!.env.example
+
+# platform
+.vercel/
+.DS_Store
+npm-debug.log*
+*.log
+
+# local development database (npm run dev:local)
+server/.data/
