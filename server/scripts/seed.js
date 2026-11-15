@@ -14,9 +14,19 @@ import { connectDB, disconnectDB } from '../src/config/db.js';
 import { Product } from '../src/models/Product.js';
 import { Coupon } from '../src/models/Coupon.js';
 import { User } from '../src/models/User.js';
+import { Order } from '../src/models/Order.js';
+import { Review } from '../src/models/Review.js';
+import { RefreshToken } from '../src/models/RefreshToken.js';
+import { WebhookEvent } from '../src/models/WebhookEvent.js';
 
 export async function seed({ uri, log = console.log } = {}) {
   await connectDB(uri);
+
+  // Production connects with autoIndex disabled, so declared indexes are built here
+  // (idempotent, additive only - existing indexes are never dropped).
+  const models = [Product, Coupon, User, Order, Review, RefreshToken, WebhookEvent];
+  for (const model of models) await model.createIndexes();
+  log(`Indexes ensured for ${models.length} collections`);
 
   const catalog = JSON.parse(await readFile(new URL('./catalog.json', import.meta.url), 'utf8'));
   let inserted = 0;

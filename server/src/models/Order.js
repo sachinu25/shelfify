@@ -89,8 +89,16 @@ const orderSchema = new mongoose.Schema(
     idempotencyKey: { type: String, maxlength: 100 },
     stockReserved: { type: Boolean, default: false },
     reservationExpiresAt: Date,
+    // Coupon use held while awaiting payment (audit M2); converted to a real use on fulfilment.
+    couponHeld: { type: Boolean, default: false },
     couponRedeemed: { type: Boolean, default: false },
+    // Set (inside a transaction) once post-payment side effects are applied: cart
+    // cleanup, sales counters, coupon redemption (audit H3). Explicit null means
+    // "paid but not yet fulfilled" and is picked up by retries/maintenance.
+    fulfilledAt: { type: Date, default: null },
     emailSent: { type: Boolean, default: false },
+    emailAttempts: { type: Number, default: 0 },
+    refundAttempts: { type: Number, default: 0 },
   },
   { timestamps: true },
 );
@@ -103,6 +111,8 @@ orderSchema.index(
   { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } },
 );
 orderSchema.index({ status: 1, reservationExpiresAt: 1 });
+orderSchema.index({ status: 1, fulfilledAt: 1 });
+orderSchema.index({ user: 1, 'coupon.couponId': 1, couponHeld: 1 });
 orderSchema.index({ 'items.product': 1 });
 
 export const Order = mongoose.models.Order || mongoose.model('Order', orderSchema);

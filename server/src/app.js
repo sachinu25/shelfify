@@ -9,7 +9,9 @@ import { randomUUID } from 'node:crypto';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { connectDB } from './config/db.js';
-import { redisHealthy } from './config/redis.js';
+import { isRedisConfigured, redisHealthy } from './config/redis.js';
+import { transactionsSupported } from './lib/tx.js';
+import { safeEqual } from './lib/utils.js';
 import { sanitizeInput } from './middleware/sanitize.js';
 import { apiLimiter } from './middleware/rateLimit.js';
 import { errorHandler, notFound } from './middleware/error.js';
@@ -27,13 +29,16 @@ export function createApp() {
 
   app.disable('x-powered-by');
   app.set('trust proxy', 1); // behind Vercel / load balancer: needed for correct req.ip and rate limiting
-  app.set('query parser', 'extended');
+  // Flat query strings only: nested objects (?a[b]=c) are never needed and widen the input surface.
+  app.set('query parser', 'simple');
 
   app.use(
     pinoHttp({
       logger,
       genReqId: (req, res) => {
-        const id = req.headers['x-request-id'] || randomUUID();
+        // Accept a caller-supplied correlation id only if it is short and safe to log/echo.
+        const incoming = req.headers['x-request-id'];
+        const id = typeof incoming === 'string' && /^[A-Za-z0-9._:-]{8,64}$/.test(incoming) ? incoming : randomUUID();
         res.setHeader('x-request-id', id);
         return id;
       },
@@ -71,8 +76,9 @@ export function createApp() {
 
   app.use(compression());
 
-  // Health check does not touch rate limiting or the request body.
-  app.get('/api/health', async (_req, res) => {
+  // Health check does not touch rate limiting or the request body. The public
+  // response is minimal; configuration details require the operator (cron) secret.
+  app.get('/api/health', async (req, res) => {
     let db = 'disconnected';
     try {
       await connectDB();
@@ -80,18 +86,34 @@ export function createApp() {
     } catch {
       db = 'error';
     }
-    res.status(db === 'connected' ? 200 : 503).json({
-      success: db === 'connected',
+    const healthy = db === 'connected';
+    const authHeader = req.get('authorization') || '';
+    const detailed = Boolean(env.CRON_SECRET) && safeEqual(authHeader, `Bearer ${env.CRON_SECRET}`);
+    res.set('Cache-Control', 'no-store');
+    res.status(healthy ? 200 : 503).json({
+      success: healthy,
       data: {
-        status: db === 'connected' ? 'ok' : 'degraded',
+        status: healthy ? 'ok' : 'degraded',
         version: 'v1',
-        db,
-        cache: redisHealthy() ? 'redis' : 'memory',
-        payments: env.paymentsEnabled ? 'razorpay' : 'disabled',
-        email: env.emailEnabled ? 'smtp' : 'log-only',
-        uptime: Math.round(process.uptime()),
+        ...(detailed || !env.isProd
+          ? {
+              db,
+              cache: redisHealthy() ? 'redis' : isRedisConfigured() ? 'redis-unavailable' : 'memory',
+              transactions: transactionsSupported(),
+              payments: env.paymentsEnabled ? 'razorpay' : 'disabled',
+              webhooks: env.RAZORPAY_WEBHOOK_SECRET ? 'enabled' : 'disabled',
+              email: env.emailEnabled ? 'smtp' : 'log-only',
+              uptime: Math.round(process.uptime()),
+            }
+          : {}),
       },
     });
+  });
+
+  // API responses are user-specific by default; public catalog routes opt in to caching.
+  app.use('/api', (_req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
   });
 
   // Ensure a DB connection for every API request (cached; cheap after the first call).

@@ -20,7 +20,8 @@ export async function connectDB(uri = env.MONGODB_URI) {
       .connect(uri, {
         maxPoolSize: env.isProd ? 10 : 5,
         serverSelectionTimeoutMS: 10_000,
-        autoIndex: true,
+        // Index builds belong to deploy-time seeding (npm run seed), not every cold start.
+        autoIndex: !env.isProd,
       })
       .then((m) => {
         logger.info({ host: m.connection.host, db: m.connection.name }, 'MongoDB connected');

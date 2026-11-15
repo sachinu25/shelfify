@@ -1,4 +1,5 @@
 import { Coupon } from '../models/Coupon.js';
+import { Order } from '../models/Order.js';
 import { env } from '../config/env.js';
 import { ApiError } from './ApiError.js';
 import { roundMoney } from './utils.js';
@@ -9,9 +10,9 @@ export const MAX_QTY_PER_ITEM = 10;
  * Validates a coupon for a user and subtotal. Returns the coupon document.
  * Throws ApiError(422) with a user friendly reason when not applicable.
  */
-export async function resolveCoupon(code, { userId, subtotal }) {
+export async function resolveCoupon(code, { userId, subtotal, session = null }) {
   if (!code) return null;
-  const coupon = await Coupon.findOne({ code: String(code).trim().toUpperCase() }).lean();
+  const coupon = await Coupon.findOne({ code: String(code).trim().toUpperCase() }).session(session).lean();
   const fail = (message, c = 'COUPON_INVALID') => {
     throw new ApiError(422, message, { code: c });
   };
@@ -19,14 +20,37 @@ export async function resolveCoupon(code, { userId, subtotal }) {
   if (!coupon || !coupon.isActive) fail('This coupon code is not valid');
   if (coupon.startsAt && coupon.startsAt > now) fail('This coupon is not active yet');
   if (coupon.expiresAt && coupon.expiresAt < now) fail('This coupon has expired', 'COUPON_EXPIRED');
-  if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) fail('This coupon has reached its usage limit', 'COUPON_EXHAUSTED');
+  // Uses held by unpaid orders count against the limit (audit M2).
+  if (coupon.usageLimit && coupon.usedCount + (coupon.reservedCount || 0) >= coupon.usageLimit) {
+    fail('This coupon has reached its usage limit', 'COUPON_EXHAUSTED');
+  }
   if (subtotal < (coupon.minOrderValue || 0)) {
     fail(`Add items worth ₹${roundMoney(coupon.minOrderValue - subtotal)} more to use ${coupon.code}`, 'COUPON_MIN_ORDER');
   }
   if (userId && coupon.perUserLimit) {
-    const usage = coupon.usedBy?.find((u) => String(u.user) === String(userId));
-    if (usage && usage.count >= coupon.perUserLimit) fail('You have already used this coupon', 'COUPON_USED');
+    const used = coupon.usedBy?.find((u) => String(u.user) === String(userId))?.count || 0;
+    const held = await Order.countDocuments({ user: userId, 'coupon.couponId': coupon._id, couponHeld: true }).session(session);
+    if (used + held >= coupon.perUserLimit) {
+      fail(held ? 'This coupon is already applied to one of your unpaid orders' : 'You have already used this coupon', 'COUPON_USED');
+    }
   }
+  return coupon;
+}
+
+/**
+ * Atomically reserves one use of a coupon for an order awaiting payment.
+ * Must run inside the checkout transaction: every reservation writes the coupon
+ * document, so concurrent checkouts conflict and are retried by the driver,
+ * which serialises the limit checks above. The conditional update additionally
+ * guards the global limit when transactions are unavailable.
+ */
+export async function holdCoupon(code, { userId, subtotal, session }) {
+  const coupon = await resolveCoupon(code, { userId, subtotal, session });
+  const guard = coupon.usageLimit
+    ? { $expr: { $lt: [{ $add: ['$usedCount', { $ifNull: ['$reservedCount', 0] }] }, '$usageLimit'] } }
+    : {};
+  const res = await Coupon.updateOne({ _id: coupon._id, isActive: true, ...guard }, { $inc: { reservedCount: 1 } }, { session });
+  if (res.modifiedCount !== 1) throw new ApiError(422, 'This coupon has reached its usage limit', { code: 'COUPON_EXHAUSTED' });
   return coupon;
 }
 

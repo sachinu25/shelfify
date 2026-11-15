@@ -20,11 +20,22 @@ router.get('/config', (_req, res) => {
  */
 router.post('/webhook', express.raw({ type: '*/*', limit: '1mb' }), async (req, res) => {
   const signature = req.get('x-razorpay-signature');
-  const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
 
   if (!env.RAZORPAY_WEBHOOK_SECRET) {
     req.log?.warn('webhook received but RAZORPAY_WEBHOOK_SECRET is not configured');
     return res.status(503).json({ success: false, error: { code: 'WEBHOOK_DISABLED', message: 'Webhook not configured' } });
+  }
+
+  // The HMAC must be computed over the exact bytes Razorpay sent (audit M4). express.raw
+  // provides a Buffer; a string means a platform helper decoded it (re-encode losslessly
+  // as UTF-8). Anything else means the body was parsed upstream and the signature can't
+  // be verified reliably - refuse loudly instead of reporting a misleading "invalid signature".
+  let raw;
+  if (Buffer.isBuffer(req.body)) raw = req.body;
+  else if (typeof req.body === 'string') raw = Buffer.from(req.body, 'utf8');
+  else {
+    req.log?.error('webhook raw body unavailable - ensure NODEJS_HELPERS=0 on Vercel');
+    return res.status(400).json({ success: false, error: { code: 'RAW_BODY_UNAVAILABLE', message: 'Raw request body unavailable' } });
   }
   if (!verifyWebhookSignature(raw, signature)) {
     req.log?.warn('invalid webhook signature');

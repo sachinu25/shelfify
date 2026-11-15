@@ -12,10 +12,23 @@ function getTransporter() {
         port: env.SMTP_PORT,
         secure: env.SMTP_PORT === 465,
         auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+        // Sends are awaited inside requests (serverless-safe), so bound every phase.
+        connectionTimeout: 8_000,
+        greetingTimeout: 8_000,
+        socketTimeout: 12_000,
+        // Templates never reference files or URLs; refuse them outright (defence in depth).
+        disableFileAccess: true,
+        disableUrlAccess: true,
       })
     : // Without SMTP credentials messages are rendered and logged, never silently dropped.
-      nodemailer.createTransport({ jsonTransport: true });
+      nodemailer.createTransport({ jsonTransport: true, disableFileAccess: true, disableUrlAccess: true });
   return transporter;
+}
+
+/** Test hooks: messages delivered in this process, and transport injection for failure tests. */
+export const sentEmails = [];
+export function __setEmailTransportForTests(transport) {
+  transporter = transport;
 }
 
 const esc = (s) =>
@@ -104,6 +117,7 @@ export async function sendEmail(to, { subject, html }) {
   try {
     const info = await getTransporter().sendMail({ from: env.EMAIL_FROM, to, subject, html });
     logger.info({ to, subject, messageId: info.messageId, delivered: env.emailEnabled }, 'email dispatched');
+    if (env.isTest) sentEmails.push({ to, subject, at: Date.now() });
     return true;
   } catch (err) {
     logger.error({ err: err.message, to, subject }, 'email failed');

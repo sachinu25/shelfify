@@ -4,7 +4,7 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { connectDB, disconnectDB } from './config/db.js';
-import { releaseExpiredReservations } from './modules/orders/order.service.js';
+import { runMaintenance } from './modules/orders/order.service.js';
 
 export async function start({ port = env.PORT } = {}) {
   await connectDB();
@@ -13,7 +13,7 @@ export async function start({ port = env.PORT } = {}) {
 
   // Long-running process: sweep expired stock reservations every minute.
   const sweeper = setInterval(() => {
-    releaseExpiredReservations().catch((err) => logger.warn({ err: err.message }, 'reservation sweep failed'));
+    runMaintenance().catch((err) => logger.warn({ err: err.message }, 'maintenance sweep failed'));
   }, 60_000);
   sweeper.unref();
 

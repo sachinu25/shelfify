@@ -13,6 +13,9 @@ const couponSchema = new mongoose.Schema(
     usageLimit: { type: Number, min: 1 }, // global
     perUserLimit: { type: Number, min: 1, default: 1 },
     usedCount: { type: Number, min: 0, default: 0 },
+    // Uses held by orders that are awaiting payment (audit M2). A coupon is
+    // exhausted when usedCount + reservedCount reaches usageLimit.
+    reservedCount: { type: Number, min: 0, default: 0 },
     usedBy: [
       {
         _id: false,

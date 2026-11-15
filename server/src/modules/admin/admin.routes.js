@@ -13,7 +13,7 @@ import { escapeRegex, isObjectId, paginationMeta } from '../../lib/utils.js';
 import { httpUrl, toPatchSchema } from '../../lib/validation.js';
 import { getProduct, invalidateProducts, listProducts, toProductDTO } from '../products/product.service.js';
 import { listQuery } from '../products/product.routes.js';
-import { adminUpdateStatus, releaseExpiredReservations, toOrderDTO } from '../orders/order.service.js';
+import { adminUpdateStatus, releaseExpiredReservations, runMaintenance, toOrderDTO } from '../orders/order.service.js';
 import { getAnalytics } from './analytics.service.js';
 
 const router = Router();
@@ -178,6 +178,11 @@ router.patch(
 
 router.post('/orders/release-expired', async (_req, res) => {
   ok(res, { released: await releaseExpiredReservations(500) });
+});
+
+/** Manually trigger the self-healing sweep (same work as the scheduled cron job). */
+router.post('/maintenance', async (_req, res) => {
+  ok(res, await runMaintenance({ limit: 500 }));
 });
 
 /* -------------------------------- coupons ------------------------------- */
