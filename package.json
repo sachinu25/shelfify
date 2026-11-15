@@ -20,6 +20,7 @@
     "prod:init": "npm run prod:init --prefix server",
     "prod:env": "npm run prod:env --prefix server",
     "prod:db": "npm run prod:db --prefix server",
-    "prod:seed:plan": "npm run prod:seed:plan --prefix server"
+    "prod:seed:plan": "npm run prod:seed:plan --prefix server",
+    "prod:set-mongo": "npm run prod:set-mongo --prefix server"
   }
 }
