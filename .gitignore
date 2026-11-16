@@ -19,3 +19,7 @@ npm-debug.log*
 
 # local development database (npm run dev:local)
 server/.data/
+
+.vercel
+.env*
+!.env.example
