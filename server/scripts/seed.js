@@ -10,6 +10,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import slugify from 'slugify';
+import { loadedDiffersFromWritten } from './lib/envfile.js';
 import { connectDB, disconnectDB } from '../src/config/db.js';
 import { Product } from '../src/models/Product.js';
 import { Coupon } from '../src/models/Coupon.js';
@@ -47,6 +48,10 @@ export async function planSeed({ uri, log = console.log } = {}) {
     const existing = await User.findOne({ email }, 'role').lean();
     log(`  admin     ${existing ? (existing.role === 'admin' ? 'already an admin - unchanged' : 'existing account would be promoted to admin') : 'would create a new admin account'}`);
     log(`  password  ${problem ? `REJECTED: ${problem}` : `OK (${password.length} chars)`}`);
+    for (const key of ['SEED_ADMIN_EMAIL', 'SEED_ADMIN_PASSWORD']) {
+      const mismatch = process.env.DOTENV_CONFIG_PATH && loadedDiffersFromWritten(process.env.DOTENV_CONFIG_PATH, key, process.env[key]);
+      if (mismatch) log(`  ${key.replace('SEED_ADMIN_', '').toLowerCase().padEnd(9)} REJECTED: ${mismatch}`);
+    }
   }
 }
 
@@ -117,6 +122,16 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.error('Review the plan first:   npm run prod:seed:plan');
     console.error('Then seed deliberately:  npm run prod:seed -- --confirm-production');
     process.exit(1);
+  }
+
+  if (isProduction && !plan && process.env.DOTENV_CONFIG_PATH) {
+    for (const key of ['SEED_ADMIN_EMAIL', 'SEED_ADMIN_PASSWORD', 'SEED_ADMIN_NAME']) {
+      const mismatch = loadedDiffersFromWritten(process.env.DOTENV_CONFIG_PATH, key, process.env[key]);
+      if (mismatch) {
+        console.error(`Refusing to seed: ${key} - ${mismatch}. Nothing was written.`);
+        process.exit(1);
+      }
+    }
   }
 
   (plan ? planSeed() : seed({ strict: isProduction }))
