@@ -23,6 +23,8 @@
     "prod:seed:plan": "npm run prod:seed:plan --prefix server",
     "prod:set-mongo": "npm run prod:set-mongo --prefix server",
     "prod:redis": "npm run prod:redis --prefix server",
-    "prod:set-redis": "npm run prod:set-redis --prefix server"
+    "prod:set-redis": "npm run prod:set-redis --prefix server",
+    "vercel:env:plan": "node scripts/vercel-env.mjs",
+    "vercel:env:apply": "node scripts/vercel-env.mjs --apply"
   }
 }
