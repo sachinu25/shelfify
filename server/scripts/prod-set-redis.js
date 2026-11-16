@@ -13,6 +13,7 @@ import dns from 'node:dns';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPrompt, setEnvLine } from './lib/prompt.js';
+import { describeSecret, probeRedis } from './lib/redis-probe.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // The override exists only so the helper can be tested against a scratch file.
@@ -65,26 +66,21 @@ if (password !== confirm) fail('The passwords did not match.');
 const url = `rediss://default:${encodeURIComponent(password)}@${host}:${port}`;
 
 if (!process.env.SHELFIFY_SKIP_CONNECT_TEST) {
-  process.stdout.write('\nTesting the connection (TLS + PING; nothing is written) ... ');
-  const { default: Redis } = await import('ioredis');
-  const client = new Redis(url, { lazyConnect: true, connectTimeout: 10_000, maxRetriesPerRequest: 1, retryStrategy: () => null });
-  client.on('error', () => {});
-  try {
-    await client.connect();
-    const pong = await client.ping();
-    if (pong !== 'PONG') throw new Error(`unexpected reply ${pong}`);
-    console.log('PONG - connection OK');
-  } catch (err) {
-    console.log('FAILED');
-    const msg = String(err?.message || err);
-    if (/WRONGPASS|NOAUTH|invalid password|AUTH/i.test(msg)) {
-      fail('Upstash rejected the password. Use the database PASSWORD from the Redis/TCP connection details (copy icon) - NOT the REST token.');
+  // Staged probe: reports the exact failing step and the server's own reply
+  // (the previous version discarded ioredis errors and only saw "Connection is closed").
+  console.log('\nTesting the connection (nothing is written):');
+  const { ok, stages } = await probeRedis({ host, port, username: 'default', password });
+  for (const s of stages) console.log(`  ${s.ok ? 'ok  ' : 'FAIL'} ${s.name.padEnd(18)} ${s.detail}`);
+  if (!ok) {
+    const failed = stages.find((s) => !s.ok);
+    if (failed?.name === 'AUTH') {
+      console.error(`\n  What you entered: ${describeSecret(password)}.`);
+      console.error('  Use the database PASSWORD from the Redis/TCP connection details (the part after "default:" in');
+      console.error('  rediss://default:...@host:6379, copy icon) - NOT the REST token shown in the REST API section.');
     }
-    else if (/ETIMEDOUT|ECONNREFUSED|ECONNRESET|timeout/i.test(msg)) fail('Could not reach the endpoint - check the endpoint and port, and that TLS is enabled on the database.');
-    else fail(`Connection failed: ${msg.replace(/\/\/[^@\s]+@/g, '//****@').replace(/\.+$/, '')}.`);
-  } finally {
-    client.disconnect();
+    fail('The connection test did not pass.');
   }
+  console.log('  PONG - connection OK');
 }
 
 writeFileSync(file, setEnvLine(readFileSync(file, 'utf8'), 'REDIS_URL', url), { mode: 0o600 });
