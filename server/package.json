@@ -25,7 +25,8 @@
     "prod:set-mongo": "node scripts/prod-set-mongo.js",
     "prod:redis": "node scripts/prod.js redis",
     "prod:set-redis": "node scripts/prod-set-redis.js",
-    "prod:admin-check": "node scripts/prod.js admin"
+    "prod:admin-check": "node scripts/prod.js admin",
+    "prod:verify-seed": "node scripts/prod.js verify-seed"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

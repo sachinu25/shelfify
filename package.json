@@ -26,6 +26,8 @@
     "prod:set-redis": "npm run prod:set-redis --prefix server",
     "vercel:env:plan": "node scripts/vercel-env.mjs",
     "vercel:env:apply": "node scripts/vercel-env.mjs --apply",
-    "prod:admin-check": "npm run prod:admin-check --prefix server"
+    "prod:admin-check": "npm run prod:admin-check --prefix server",
+    "prod:verify-seed": "npm run prod:verify-seed --prefix server",
+    "prod:seed": "npm run prod:seed --prefix server --"
   }
 }
