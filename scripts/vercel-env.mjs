@@ -65,7 +65,8 @@ const run = (args, input) =>
 const linked = existsSync(path.join(root, '.vercel', 'project.json'));
 let existing = new Set();
 if (linked) {
-  const { code, out } = await run(['env', 'ls', 'production']);
+  // Plain table output lists names only (never use --json here: it includes readable values).
+  const { code, out } = await run(['env', 'ls', '--environment', 'production']);
   if (code === 0) existing = new Set([...out.matchAll(/^\s*([A-Z][A-Z0-9_]+)\s/gm)].map((m) => m[1]));
 }
 
