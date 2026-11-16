@@ -14,6 +14,7 @@ const OrderDetail = lazy(() => import('./pages/OrderDetail'));
 const Wishlist = lazy(() => import('./pages/Wishlist'));
 const Account = lazy(() => import('./pages/Account'));
 const NotFound = lazy(() => import('./pages/NotFound'));
+const About = lazy(() => import('./pages/About'));
 const Login = lazy(() => import('./pages/Auth').then((m) => ({ default: m.Login })));
 const Register = lazy(() => import('./pages/Auth').then((m) => ({ default: m.Register })));
 const ForgotPassword = lazy(() => import('./pages/Auth').then((m) => ({ default: m.ForgotPassword })));
@@ -40,6 +41,7 @@ export default function App() {
             <Route path="books/:slug" element={<ProductDetail />} />
             <Route path="cart" element={<Cart />} />
             <Route path="wishlist" element={<Wishlist />} />
+            <Route path="about" element={<About />} />
             <Route path="login" element={<GuestOnly><Login /></GuestOnly>} />
             <Route path="register" element={<GuestOnly><Register /></GuestOnly>} />
             <Route path="forgot-password" element={<ForgotPassword />} />

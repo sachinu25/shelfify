@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Logo } from './Navbar';
 import { GENRE_META } from '../../lib/format';
+import { CREATOR_NAME } from '../../lib/site';
 
 export function Footer() {
   const genres = ['fiction', 'thriller', 'romance', 'philosophy', 'manga', 'tech'];
@@ -12,6 +13,9 @@ export function Footer() {
           <p className="mt-4 max-w-xs text-sm leading-relaxed text-ink-soft">
             An independent online bookstore for curious readers. Carefully chosen shelves, honest reviews and secure checkout.
           </p>
+          <Link to="/about" className="link-underline mt-4 inline-block text-sm font-medium text-ink hover:text-accent">
+            About Shelfify
+          </Link>
         </div>
         <div>
           <p className="eyebrow mb-4">Browse</p>
@@ -45,8 +49,11 @@ export function Footer() {
         </div>
       </div>
       <div className="border-t border-line">
-        <div className="container-page flex flex-col gap-2 py-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
+        <div className="container-page flex flex-col gap-2 py-6 text-xs text-muted md:flex-row md:items-center md:justify-between">
           <p>© {new Date().getFullYear()} Shelfify. All rights reserved.</p>
+          <p data-testid="creator-credit">
+            Designed &amp; Developed by <span className="font-medium text-ink-soft">{CREATOR_NAME}</span>
+          </p>
           <p>Prices in INR, inclusive of taxes.</p>
         </div>
       </div>
