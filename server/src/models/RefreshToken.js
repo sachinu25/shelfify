@@ -14,6 +14,9 @@ const refreshTokenSchema = new mongoose.Schema(
     revokedReason: { type: String, enum: [...REVOKE_REASONS, null], default: null },
     // How many times this (already rotated) token was accepted inside the grace window.
     graceUses: { type: Number, default: 0 },
+    // Audit trail for presentations of an already revoked/rotated token (theft signal).
+    reuseAttempts: { type: Number, default: 0 },
+    lastReuseAt: { type: Date, default: null },
     userAgent: String,
     ip: String,
   },

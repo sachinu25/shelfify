@@ -157,6 +157,8 @@ describe('low-severity hardening', () => {
     expect(Object.keys(pub).sort()).toEqual(['status', 'version']);
     expect(priv).toHaveProperty('db', 'connected');
     expect(priv).toHaveProperty('payments');
+    expect(priv.node).toBe(process.version); // runtime is reported to operators only
+    expect(pub).not.toHaveProperty('node');
   });
 
   it('only echoes safe request ids', async () => {

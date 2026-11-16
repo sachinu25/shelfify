@@ -60,6 +60,34 @@ describe('H1: concurrent refresh', () => {
     expect((await refresh(cookieOf(rotated))).status).toBe(401);
   });
 
+  it('replaying a logged-out cookie keeps the "logout" audit reason, records the attempt and stays revoked', async () => {
+    const cookie = await session();
+    const rotated = await refresh(cookie);
+    const latest = cookieOf(rotated);
+    expect((await request(app).post('/api/v1/auth/logout').set('Cookie', latest).set('User-Agent', UA)).status).toBe(200);
+
+    // Follow-up refresh with the logged-out cookie (what the production check did)
+    expect((await refresh(latest)).status).toBe(401);
+    expect((await refresh(latest)).status).toBe(401);
+
+    const tokens = await M.RefreshToken.find({}).lean();
+    const loggedOut = tokens.find((t) => t.revokedReason === 'logout');
+    expect(loggedOut).toBeTruthy(); // not overwritten with "reuse"
+    expect(loggedOut.reuseAttempts).toBe(2);
+    expect(loggedOut.lastReuseAt).toBeInstanceOf(Date);
+    expect(tokens.every((t) => t.revokedAt)).toBe(true); // whole family still revoked
+    expect((await refresh(cookie)).status).toBe(401); // the older, rotated cookie is dead too
+  });
+
+  it('a theft replay of a rotated token is still recorded as "reuse"', async () => {
+    const cookie = await session();
+    await refresh(cookie);
+    expect((await refresh(cookie, 'curl/8.0 attacker')).status).toBe(401);
+    const stolen = await M.RefreshToken.findOne({ reuseAttempts: 1 }).lean();
+    expect(stolen.revokedReason).toBe('reuse');
+    expect(await M.RefreshToken.countDocuments({ revokedAt: null })).toBe(0);
+  });
+
   it('the grace budget is limited', async () => {
     const cookie = await session();
     await refresh(cookie); // normal rotation

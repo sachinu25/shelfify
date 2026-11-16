@@ -103,6 +103,8 @@ export function createApp() {
               payments: env.paymentsEnabled ? 'razorpay' : 'disabled',
               webhooks: env.RAZORPAY_WEBHOOK_SECRET ? 'enabled' : 'disabled',
               email: env.emailEnabled ? 'smtp' : 'log-only',
+              node: process.version,
+              region: process.env.VERCEL_REGION || 'local',
               uptime: Math.round(process.uptime()),
             }
           : {}),

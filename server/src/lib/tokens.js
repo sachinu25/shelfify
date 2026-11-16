@@ -49,7 +49,12 @@ const MAX_GRACE_USES = 3;
 async function killFamily(family, reason, markTokenId) {
   const now = new Date();
   await RefreshToken.updateMany({ family, revokedAt: null }, { $set: { revokedAt: now, revokedReason: reason } });
-  if (markTokenId) await RefreshToken.updateOne({ _id: markTokenId }, { $set: { revokedReason: reason } });
+  // Never overwrite an earlier terminal reason (e.g. replaying a logged-out cookie must not
+  // turn "logout" into "reuse"): only a merely rotated token gets stamped. Any terminal
+  // reason already marks the family as ended, so reuse detection is unaffected.
+  if (markTokenId) {
+    await RefreshToken.updateOne({ _id: markTokenId, revokedReason: { $nin: FAMILY_KILL_REASONS } }, { $set: { revokedReason: reason } });
+  }
 }
 
 /**
@@ -96,6 +101,9 @@ export async function rotateRefreshToken(rawToken, { userAgent } = {}) {
   }
 
   // Genuine re-use of a rotated/revoked token: assume theft and end the session family.
+  // The attempt itself is recorded separately so it stays auditable even when the
+  // token's original revoke reason (e.g. "logout") is preserved.
+  await RefreshToken.updateOne({ _id: prior._id }, { $inc: { reuseAttempts: 1 }, $set: { lastReuseAt: now } });
   await killFamily(prior.family, 'reuse', prior._id);
   throw ApiError.unauthorized('Session expired', { code: 'INVALID_REFRESH_TOKEN' });
 }
