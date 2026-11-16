@@ -15,7 +15,9 @@ export function loadedDiffersFromWritten(file, key, loaded) {
   } catch {
     return null;
   }
-  const line = text.split(/\r?\n/).find((l) => l.startsWith(`${key}=`));
+  // dotenv lets the LAST occurrence win, so compare against that one.
+  const matches = text.split(/\r?\n/).filter((l) => l.startsWith(`${key}=`));
+  const line = matches[matches.length - 1];
   if (line === undefined) return null;
   const raw = line.slice(key.length + 1).trim();
   let intended = raw;
@@ -30,4 +32,22 @@ export function loadedDiffersFromWritten(file, key, loaded) {
   }
   if ((loaded ?? '') !== intended) return 'the loaded value does not match what is written (check quoting) - wrap the whole value in single quotes';
   return null;
+}
+
+/** Keys defined more than once (confusing: dotenv uses the last, other tools may use the first). */
+export function duplicateKeys(file) {
+  let text;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch {
+    return [];
+  }
+  const counts = {};
+  for (const l of text.split(/\r?\n/)) {
+    const m = l.match(/^([A-Z0-9_]+)=/);
+    if (m) counts[m[1]] = (counts[m[1]] || 0) + 1;
+  }
+  return Object.entries(counts)
+    .filter(([, n]) => n > 1)
+    .map(([k, n]) => `${k} (${n}x)`);
 }

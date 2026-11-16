@@ -9,7 +9,7 @@ import dns from 'node:dns';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadedDiffersFromWritten } from './lib/envfile.js';
+import { duplicateKeys, loadedDiffersFromWritten } from './lib/envfile.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const email = (process.env.SEED_ADMIN_EMAIL || '').trim();
@@ -58,6 +58,8 @@ rule('display name', true, name ? `"${name}"` : 'not set - defaults to "Store Ad
 
 // What dotenv loads must equal what is written (an unquoted "#" silently truncates).
 const envFile = process.env.DOTENV_CONFIG_PATH || path.join(root, '.env.production.local');
+const dupes = duplicateKeys(envFile);
+rule('every key is defined only once in the file', dupes.length === 0, dupes.length ? `duplicates: ${dupes.join(', ')} - delete the older line(s)` : '');
 for (const key of ['SEED_ADMIN_EMAIL', 'SEED_ADMIN_PASSWORD', 'SEED_ADMIN_NAME']) {
   const problem = loadedDiffersFromWritten(envFile, key, process.env[key]);
   rule(`${key} is loaded exactly as written in the file`, !problem, problem || '');
