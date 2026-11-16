@@ -32,10 +32,16 @@ console.log('\nShelfify - configure production Redis (Upstash), stored only in s
 const p = createPrompt();
 
 const raw = await p.ask('1) Upstash endpoint, e.g. <name>-<id>.upstash.io  (endpoint only - no password here)\n   > ');
-if (/^rediss?:\/\//i.test(raw) || raw.includes('@')) {
+if (raw.includes('@')) {
   fail('Please enter only the endpoint (the host name). Never paste a URL containing the password at a visible prompt.', p);
 }
-const host = raw.replace(/:\d+$/, '').trim().toLowerCase();
+// Accept "host", "host:6379", "https://host" (Upstash REST URL) or "rediss://host:6379" - keep only the host.
+const host = raw
+  .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+  .replace(/\/.*$/, '')
+  .replace(/:\d+$/, '')
+  .trim()
+  .toLowerCase();
 if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) fail('That does not look like a host name.', p);
 if (!host.endsWith('.upstash.io')) console.log('   note: not an *.upstash.io host - continuing, but double-check it.');
 try {
@@ -71,7 +77,9 @@ if (!process.env.SHELFIFY_SKIP_CONNECT_TEST) {
   } catch (err) {
     console.log('FAILED');
     const msg = String(err?.message || err);
-    if (/WRONGPASS|NOAUTH|invalid password|AUTH/i.test(msg)) fail('Upstash rejected the password - copy it again from the database page (Password -> copy icon).');
+    if (/WRONGPASS|NOAUTH|invalid password|AUTH/i.test(msg)) {
+      fail('Upstash rejected the password. Use the database PASSWORD from the Redis/TCP connection details (copy icon) - NOT the REST token.');
+    }
     else if (/ETIMEDOUT|ECONNREFUSED|ECONNRESET|timeout/i.test(msg)) fail('Could not reach the endpoint - check the endpoint and port, and that TLS is enabled on the database.');
     else fail(`Connection failed: ${msg.replace(/\/\/[^@\s]+@/g, '//****@').replace(/\.+$/, '')}.`);
   } finally {
